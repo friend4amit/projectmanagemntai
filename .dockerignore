@@ -1,0 +1,17 @@
+frontend/node_modules
+frontend/.next
+frontend/.turbo
+frontend/out
+__pycache__
+*.pyc
+.env
+.git
+.gitignore
+.vscode
+.idea
+*.db
+*.sqlite3
+npm-debug.log
+yarn-error.log
+dist
+build
