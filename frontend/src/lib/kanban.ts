@@ -198,6 +198,42 @@ const isValidBoardData = (value: unknown): value is BoardData => {
   return true;
 };
 
+const applyColumnsPatch = (board: BoardData, columns: unknown[]): BoardData | null => {
+  const patches = new Map<string, string[]>();
+  const claimedCardIds = new Set<string>();
+
+  for (const entry of columns) {
+    if (!entry || typeof entry !== "object") return null;
+    const { id, cardIds } = entry as Record<string, unknown>;
+    if (typeof id !== "string" || !board.columns.some((column) => column.id === id)) return null;
+    if (!Array.isArray(cardIds) || patches.has(id)) return null;
+
+    const validatedCardIds: string[] = [];
+    for (const cardId of cardIds) {
+      if (typeof cardId !== "string" || !(cardId in board.cards) || claimedCardIds.has(cardId)) return null;
+      claimedCardIds.add(cardId);
+      validatedCardIds.push(cardId);
+    }
+    patches.set(id, validatedCardIds);
+  }
+
+  if (patches.size === 0) return null;
+
+  const nextColumns = board.columns.map((column) => {
+    const patch = patches.get(column.id);
+    if (patch) return { ...column, cardIds: patch };
+    return { ...column, cardIds: column.cardIds.filter((cardId) => !claimedCardIds.has(cardId)) };
+  });
+
+  const placedCardIds = nextColumns.flatMap((column) => column.cardIds);
+  const allCardIds = Object.keys(board.cards);
+  if (placedCardIds.length !== allCardIds.length || new Set(placedCardIds).size !== allCardIds.length) {
+    return null;
+  }
+
+  return { ...board, columns: nextColumns };
+};
+
 export const applyBoardUpdate = (board: BoardData, boardUpdate: unknown): BoardData => {
   if (!boardUpdate || typeof boardUpdate !== "object" || Array.isArray(boardUpdate)) {
     return board;
@@ -205,8 +241,11 @@ export const applyBoardUpdate = (board: BoardData, boardUpdate: unknown): BoardD
 
   const update = boardUpdate as Record<string, unknown>;
 
-  if (Array.isArray(update.columns) && typeof update.cards === "object" && update.cards !== null) {
-    return isValidBoardData(update) ? update : board;
+  if (Array.isArray(update.columns)) {
+    if (typeof update.cards === "object" && update.cards !== null && isValidBoardData(update)) {
+      return update;
+    }
+    return applyColumnsPatch(board, update.columns) ?? board;
   }
 
   const findColumn = (value: string) => {

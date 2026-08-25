@@ -20,6 +20,10 @@ The `backend/` folder contains a FastAPI app that serves the frontend static out
 - `backend/app/ai.py` for AI integration logic
 - `backend/test/test_api.py` for backend tests
 
+## Notes
+
+- `ai.py`'s prompt to the model explicitly documents the exact `boardUpdate` shapes the frontend understands (the `moveCard`/`createCard`/`renameColumn` action objects, or a full `columns`+`cards` replacement) — this matters because the model isn't fine-tuned for this schema and, left unconstrained, would sometimes return a partial `columns`-only diff (no `action`, no `cards`) that `frontend/src/lib/kanban.ts`'s `applyBoardUpdate` couldn't recognize, silently dropping the change while still reporting success in the chat message. See the matching note in `frontend/AGENTS.md`.
+
 ## Goals for Part 2 and beyond
 
 - Part 2: scaffolding with a working FastAPI app and a sample API response.

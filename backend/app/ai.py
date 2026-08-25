@@ -33,6 +33,12 @@ def _format_assistant_prompt(prompt: str, board: dict[str, Any] | None) -> str:
         "Respond with valid JSON only.",
         "The JSON object should contain a 'message' string and an optional 'boardUpdate' object.",
         "If no board changes are needed, return only 'message'.",
+        "When a change is needed, 'boardUpdate' must be one of these exact shapes:",
+        '  - Move a card: {"action": "moveCard", "cardId": "<card id>", "toColumn": "<column id or title>"}',
+        '  - Create a card: {"action": "createCard", "card": {"title": "<title>", "description": "<details>", "column": "<column id or title>"}}',
+        '  - Rename a column: {"action": "renameColumn", "columnId": "<column id>", "title": "<new title>"}',
+        "  - Or a full board replacement with the complete 'columns' and 'cards' as given in the current board state.",
+        "Never return a partial 'columns' list without the matching action field above.",
     ]
     if board is not None:
         base.append("Current board state:")
