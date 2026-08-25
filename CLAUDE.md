@@ -54,7 +54,7 @@ scripts/stop.sh
 
 **Build/serve pipeline**: the root `Dockerfile` builds the Next.js app (`next build`, static export to `frontend/out`) in one stage, then copies that output into `backend/app/static` in a `python:3.12-slim` stage. FastAPI serves `index.html` for `/` and any non-`/api/*`, non-static path (SPA-style fallback in `backend/app/main.py`'s catch-all route), so client-side routing works after a full page load.
 
-**Auth**: cookie-based sessions, but sessions live in an in-process `dict` (`sessions` in `backend/app/main.py`), not the database — they reset on backend restart. Passwords are stored in plaintext in SQLite (MVP-only; hardcoded default `user`/`password` account is seeded on first run).
+**Auth**: cookie-based sessions, but sessions live in an in-process `dict` (`sessions` in `backend/app/main.py`), not the database — they reset on backend restart. Passwords are hashed with PBKDF2-HMAC-SHA256 (600k iterations, per-password salt) before being stored in SQLite (`backend/app/db.py`); a hardcoded default `user`/`password` account is seeded on first run.
 
 **Data model / persistence** (`backend/app/db.py`): SQLite at `backend/app/database.db`, created and migrated automatically in `init_db()` (called from the FastAPI lifespan). Two tables: `users` (username/password) and `boards` (`user_id`, `title`, `data` — the entire board as a JSON blob). Every board read/write is scoped by `user_id` in the SQL `WHERE` clause — this is the ownership boundary, not an app-layer check. A new user gets a default board seeded from `backend/app/board.json` if present, else a hardcoded `DEFAULT_BOARD`.
 

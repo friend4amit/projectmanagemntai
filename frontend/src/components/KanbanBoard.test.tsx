@@ -5,17 +5,23 @@ import { KanbanBoard } from "@/components/KanbanBoard";
 import { initialData } from "@/lib/kanban";
 
 const user = { id: 1, username: "user" };
-const boards = [{ id: 1, title: "My first board" }];
+const boards = [{ id: 1, title: "My first board" }, { id: 2, title: "Second board" }];
 
 describe("KanbanBoard", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn(async (input, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.url;
       if (url === "/api/boards" && init?.method === "POST") {
-        return { ok: true, json: async () => ({ id: 2, title: "Second board" }) };
+        return { ok: true, json: async () => ({ id: 3, title: "Third board" }) };
       }
       if (url === "/api/boards") {
         return { ok: true, json: async () => boards };
+      }
+      if (url === "/api/boards/1" && init?.method === "PATCH") {
+        return { ok: true, json: async () => ({ id: 1, title: "Renamed board" }) };
+      }
+      if (url === "/api/boards/1" && init?.method === "DELETE") {
+        return { ok: true, status: 204, json: async () => null };
       }
       return { ok: true, json: async () => initialData };
     }));
@@ -52,8 +58,29 @@ describe("KanbanBoard", () => {
   it("creates and selects a new board", async () => {
     renderBoard();
     await screen.findByRole("combobox", { name: /current board/i });
-    await userEvent.type(screen.getByPlaceholderText("New board name"), "Second board");
+    await userEvent.type(screen.getByPlaceholderText("New board name"), "Third board");
     await userEvent.click(screen.getByRole("button", { name: /create board/i }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: /current board/i })).toHaveValue("3"));
+  });
+
+  it("renames the current board", async () => {
+    renderBoard();
+    await screen.findByRole("combobox", { name: /current board/i });
+    await userEvent.click(screen.getByRole("button", { name: /rename board/i }));
+    const input = screen.getByDisplayValue("My first board");
+    await userEvent.clear(input);
+    await userEvent.type(input, "Renamed board");
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: /current board/i })).toBeInTheDocument());
+    expect(screen.getByRole("option", { name: "Renamed board" })).toBeInTheDocument();
+  });
+
+  it("deletes the current board and switches to another", async () => {
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    renderBoard();
+    const select = await screen.findByRole("combobox", { name: /current board/i });
+    expect(select).toHaveValue("1");
+    await userEvent.click(screen.getByRole("button", { name: /delete board/i }));
     await waitFor(() => expect(screen.getByRole("combobox", { name: /current board/i })).toHaveValue("2"));
   });
 });

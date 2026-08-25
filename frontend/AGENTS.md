@@ -36,7 +36,7 @@ The frontend supports backend-authenticated local accounts, selecting or creatin
 
 ## Notes
 
-- The current board state loads from the backend and persists through `/api/board`.
+- The current board state loads from the backend and persists through `/api/boards/{id}`. Boards can also be renamed (`PATCH`) and deleted (`DELETE`, rejected with 400 if it's the user's only board) from the board switcher in `KanbanBoard.tsx`.
 - The existing UI supports column rename, card add, delete, and drag/drop.
 - AI chat updates are handled by applying structured `boardUpdate` action objects to the existing board.
 - Board columns render in a horizontal flex strip (`KanbanBoard.tsx`) that lets each column grow to fill available width (`min-w-[280px] flex-1` in `KanbanColumn.tsx`) and falls back to horizontal scroll (`overflow-x-auto`) once columns hit that 280px floor, rather than squeezing into a fixed grid — this keeps columns usable at both narrow and wide viewports. The AI chat sidebar stacks full-width below the board up to a custom `min-[1900px]` breakpoint (chosen so five 280px columns plus the 360px sidebar actually fit side by side without scrolling) and only docks beside the board above that width.

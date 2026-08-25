@@ -187,6 +187,37 @@ def create_board(user_id: int, title: str) -> dict[str, Any]:
     return board
 
 
+def rename_board(user_id: int, board_id: int, title: str) -> bool:
+    connection = get_connection()
+    with connection:
+        updated = connection.execute(
+            "UPDATE boards SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?",
+            (title.strip(), board_id, user_id),
+        )
+    connection.close()
+    return updated.rowcount > 0
+
+
+def delete_board(user_id: int, board_id: int) -> bool:
+    connection = get_connection()
+    try:
+        owned = connection.execute(
+            "SELECT id FROM boards WHERE id = ? AND user_id = ?", (board_id, user_id)
+        ).fetchone()
+        if owned is None:
+            return False
+        remaining = connection.execute(
+            "SELECT COUNT(*) FROM boards WHERE user_id = ?", (user_id,)
+        ).fetchone()[0]
+        if remaining <= 1:
+            raise ValueError("Cannot delete your only board")
+        with connection:
+            connection.execute("DELETE FROM boards WHERE id = ? AND user_id = ?", (board_id, user_id))
+        return True
+    finally:
+        connection.close()
+
+
 def read_board(user_id: int, board_id: int) -> dict[str, Any] | None:
     connection = get_connection()
     row = connection.execute(

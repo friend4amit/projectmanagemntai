@@ -9,7 +9,18 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
 from .ai import call_openrouter
-from .db import authenticate_user, create_board, create_user, get_user, init_db, list_boards, read_board, write_board
+from .db import (
+    authenticate_user,
+    create_board,
+    create_user,
+    delete_board,
+    get_user,
+    init_db,
+    list_boards,
+    read_board,
+    rename_board,
+    write_board,
+)
 from .schemas import AIResponse, BoardData, BoardSummary, CreateBoard, Credentials, UserResponse
 
 
@@ -102,6 +113,23 @@ def get_boards(user: dict[str, int | str] = Depends(get_current_user)) -> list[B
 @app.post("/api/boards", response_model=BoardSummary, status_code=status.HTTP_201_CREATED)
 def post_board(payload: CreateBoard, user: dict[str, int | str] = Depends(get_current_user)) -> BoardSummary:
     return BoardSummary(**create_board(int(user["id"]), payload.title))
+
+
+@app.patch("/api/boards/{board_id}", response_model=BoardSummary)
+def patch_board(board_id: int, payload: CreateBoard, user: dict[str, int | str] = Depends(get_current_user)) -> BoardSummary:
+    if not rename_board(int(user["id"]), board_id, payload.title):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Board not found")
+    return BoardSummary(id=board_id, title=payload.title.strip())
+
+
+@app.delete("/api/boards/{board_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_board_route(board_id: int, user: dict[str, int | str] = Depends(get_current_user)) -> None:
+    try:
+        deleted = delete_board(int(user["id"]), board_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Board not found")
 
 
 @app.get("/api/boards/{board_id}", response_model=BoardData)

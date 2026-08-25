@@ -35,6 +35,8 @@ export const KanbanBoard = ({ user, onLogout }: KanbanBoardProps) => {
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameTitle, setRenameTitle] = useState("");
   const saveQueue = useRef(Promise.resolve());
 
   useEffect(() => {
@@ -56,6 +58,7 @@ export const KanbanBoard = ({ user, onLogout }: KanbanBoardProps) => {
 
   useEffect(() => {
     if (boardId === null) return;
+    setIsRenaming(false);
     const loadBoard = async () => {
       setIsLoading(true);
       setLoadError(null);
@@ -109,6 +112,52 @@ export const KanbanBoard = ({ user, onLogout }: KanbanBoardProps) => {
     }
   };
 
+  const currentBoard = boards.find((item) => item.id === boardId) ?? null;
+
+  const startRename = () => {
+    if (!currentBoard) return;
+    setRenameTitle(currentBoard.title);
+    setIsRenaming(true);
+  };
+
+  const handleRenameBoard = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (boardId === null || !renameTitle.trim()) return;
+    try {
+      const response = await apiFetch(`/api/boards/${boardId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: renameTitle.trim() }),
+      });
+      if (!response.ok) throw new Error(`Board rename failed: ${response.status}`);
+      const updated: BoardSummary = await response.json();
+      setBoards((current) => current.map((item) => (item.id === boardId ? updated : item)));
+      setIsRenaming(false);
+    } catch (error) {
+      setLoadError("Unable to rename this board.");
+      console.error(error);
+    }
+  };
+
+  const handleDeleteBoard = async () => {
+    if (boardId === null) return;
+    if (!window.confirm("Delete this board? This cannot be undone.")) return;
+    try {
+      const response = await apiFetch(`/api/boards/${boardId}`, { method: "DELETE" });
+      if (response.status === 400) {
+        setLoadError("You can't delete your only board.");
+        return;
+      }
+      if (!response.ok) throw new Error(`Board delete failed: ${response.status}`);
+      const remaining = boards.filter((item) => item.id !== boardId);
+      setBoards(remaining);
+      setBoardId(remaining[0]?.id ?? null);
+    } catch (error) {
+      setLoadError("Unable to delete this board.");
+      console.error(error);
+    }
+  };
+
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   const cardsById = useMemo(() => board.cards, [board.cards]);
 
@@ -144,11 +193,28 @@ export const KanbanBoard = ({ user, onLogout }: KanbanBoardProps) => {
             <button type="button" onClick={handleLogout} className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-50">Sign out</button>
           </div>
           <div className="flex flex-wrap items-end gap-3">
-            <label className="flex min-w-56 flex-1 flex-col gap-2 text-sm font-semibold text-[var(--navy-dark)]">Current board
-              <select value={boardId} onChange={(event) => setBoardId(Number(event.target.value))} className="rounded-xl border border-[var(--stroke)] bg-white px-3 py-2 font-normal">
-                {boards.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
-              </select>
-            </label>
+            {isRenaming ? (
+              <form onSubmit={handleRenameBoard} className="flex min-w-56 flex-1 flex-col gap-2 text-sm font-semibold text-[var(--navy-dark)]">
+                Rename board
+                <div className="flex gap-2">
+                  <input value={renameTitle} onChange={(event) => setRenameTitle(event.target.value)} className="flex-1 rounded-xl border border-[var(--stroke)] bg-white px-3 py-2 font-normal" autoFocus />
+                  <button type="submit" className="rounded-xl bg-[var(--secondary-purple)] px-4 py-2 text-sm font-semibold text-white">Save</button>
+                  <button type="button" onClick={() => setIsRenaming(false)} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900">Cancel</button>
+                </div>
+              </form>
+            ) : (
+              <label className="flex min-w-56 flex-1 flex-col gap-2 text-sm font-semibold text-[var(--navy-dark)]">Current board
+                <select value={boardId ?? ""} onChange={(event) => setBoardId(Number(event.target.value))} className="rounded-xl border border-[var(--stroke)] bg-white px-3 py-2 font-normal">
+                  {boards.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
+                </select>
+              </label>
+            )}
+            {!isRenaming ? (
+              <div className="flex gap-2">
+                <button type="button" onClick={startRename} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-50">Rename board</button>
+                <button type="button" onClick={handleDeleteBoard} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-50">Delete board</button>
+              </div>
+            ) : null}
             <form onSubmit={handleCreateBoard} className="flex flex-1 gap-2">
               <input value={newBoardTitle} onChange={(event) => setNewBoardTitle(event.target.value)} placeholder="New board name" className="min-w-40 flex-1 rounded-xl border border-[var(--stroke)] bg-white px-3 py-2 text-sm" />
               <button type="submit" className="rounded-xl bg-[var(--secondary-purple)] px-4 py-2 text-sm font-semibold text-white">Create board</button>
