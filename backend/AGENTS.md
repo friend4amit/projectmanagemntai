@@ -2,13 +2,13 @@
 
 ## Current state
 
-The `backend/` folder now contains a working FastAPI app. It serves the frontend static output from `backend/app/static`, provides board CRUD endpoints, and integrates with OpenRouter for AI chat.
+The `backend/` folder contains a FastAPI app that serves the frontend static output from `backend/app/static`, provides cookie-based local authentication, user-scoped multi-board CRUD endpoints, and integrates with OpenRouter for AI chat.
 
 ## Responsibilities
 
 - Build the FastAPI backend that serves the static Next.js build at `/`.
-- Add API endpoints for authentication, board retrieval, board updates, and AI chat.
-- Implement SQLite persistence, creating the database file if it does not exist.
+- Add API endpoints for registration, login, logout, current user, user-scoped board retrieval/updates, and AI chat.
+- Implement SQLite persistence and migrations for users and multiple named boards.
 - Add OpenRouter integration for AI calls using `OPENROUTER_API_KEY` loaded from `.env`.
 - Keep the backend minimal, simple, and well-tested.
 

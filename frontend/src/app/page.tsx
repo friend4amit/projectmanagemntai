@@ -2,23 +2,33 @@
 
 import { useEffect, useState } from "react";
 import { KanbanBoard } from "@/components/KanbanBoard";
-import { LoginForm } from "@/components/LoginForm";
+import { LoginForm, type AuthenticatedUser } from "@/components/LoginForm";
 
 export default function Home() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState<AuthenticatedUser | null>(null);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
 
   useEffect(() => {
-    setIsAuthenticated(localStorage.getItem("pm-user-auth") === "true");
+    const restoreSession = async () => {
+      try {
+        const response = await fetch("/api/auth/me");
+        if (response.ok) {
+          setUser(await response.json());
+        }
+      } finally {
+        setIsCheckingSession(false);
+      }
+    };
+    void restoreSession();
   }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem("pm-user-auth");
-    setIsAuthenticated(false);
-  };
+  if (isCheckingSession) {
+    return <div className="flex min-h-screen items-center justify-center text-sm text-slate-700">Loading...</div>;
+  }
 
-  return isAuthenticated ? (
-    <KanbanBoard onLogout={handleLogout} />
+  return user ? (
+    <KanbanBoard user={user} onLogout={() => setUser(null)} />
   ) : (
-    <LoginForm onLogin={() => setIsAuthenticated(true)} />
+    <LoginForm onLogin={setUser} />
   );
 }

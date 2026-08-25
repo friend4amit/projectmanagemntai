@@ -7,23 +7,21 @@ Build a local MVP that combines a Next.js Kanban frontend, a Python FastAPI back
 ## Current implementation status
 
 - Frontend and backend are integrated and deployed in Docker.
-- Authentication is implemented with local auth state and logout.
-- Board state is persisted in SQLite via backend API routes.
+- Authentication and board persistence are being upgraded for multiple local users and multiple boards per user.
 - AI chat now returns structured `boardUpdate` actions and the frontend applies them to the board.
 - `OPENROUTER_API_KEY` is loaded from `.env` and passed into Docker with `--env-file .env`.
 
 ## Business requirements
 
 - A user can sign in.
-- When signed in, the user sees a single Kanban board representing their project.
+- When signed in, a user can create, select, and update their own Kanban boards.
 - The Kanban board has fixed columns that can be renamed.
 - Cards can be moved, added, and deleted.
 - An AI chat sidebar can create, edit, move, or update cards.
 
 ## Limitations
 
-- One hardcoded user: `user` / `password`.
-- One board per user.
+- Local username/password accounts only; there is no external identity provider.
 - Local deployment via Docker.
 
 ## Technical decisions
@@ -220,6 +218,28 @@ Success criteria:
 
 Verification:
 - End-to-end tests for chat with board updates.
+
+### Part 11: Multi-user and multi-board support
+
+Tasks:
+- Replace browser-only authentication with backend login, registration, logout, and cookie session endpoints.
+- Scope every board and AI request to the authenticated user.
+- Migrate the SQLite `boards` table to include a board title and support multiple boards per user.
+- Preserve the existing board as the default board for the original `user` account.
+- Add board selection and board creation to the frontend.
+- Update backend and frontend tests for accounts, ownership, and board switching.
+
+Status:
+- In progress.
+
+Success criteria:
+- A newly registered user cannot read or update another user's boards.
+- A user can create and select more than one board, and changes persist to the selected board only.
+- The existing `user` / `password` login and its existing board continue to work after migration.
+
+Verification:
+- Backend tests cover registration, login, ownership boundaries, and multi-board persistence.
+- Frontend tests cover board selection and creation.
 
 ## Coding standards
 

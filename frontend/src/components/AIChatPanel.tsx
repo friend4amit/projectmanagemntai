@@ -10,10 +10,11 @@ type AIMessage = {
 
 type AIChatPanelProps = {
   board: BoardData;
+  boardId: number;
   onBoardUpdate: (board: BoardData) => void;
 };
 
-export function AIChatPanel({ board, onBoardUpdate }: AIChatPanelProps) {
+export function AIChatPanel({ board, boardId, onBoardUpdate }: AIChatPanelProps) {
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
@@ -35,7 +36,7 @@ export function AIChatPanel({ board, onBoardUpdate }: AIChatPanelProps) {
       const response = await fetch("/api/ai/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: userMessage.text, board }),
+        body: JSON.stringify({ prompt: userMessage.text, boardId }),
       });
 
       if (!response.ok) {

@@ -4,11 +4,11 @@
 
 The `frontend/` folder contains a Next.js app with a working Kanban app. The UI is implemented in React with drag-and-drop using `@dnd-kit` and board state is now loaded from and persisted to the backend API.
 
-The frontend also supports local authentication and an AI chat sidebar that applies structured `boardUpdate` actions returned by the backend.
+The frontend supports backend-authenticated local accounts, selecting or creating boards for the signed-in user, and an AI chat sidebar that applies structured `boardUpdate` actions returned by the backend.
 
 ## Key files
 
-- `frontend/src/app/page.tsx` - application entry point rendering the `LoginForm` or `KanbanBoard`.
+- `frontend/src/app/page.tsx` - application entry point that restores the authenticated user and renders the `LoginForm` or `KanbanBoard`.
 - `frontend/src/components/KanbanBoard.tsx` - the board container, drag/drop handling, and board state.
 - `frontend/src/components/KanbanColumn.tsx` - column rendering and card list.
 - `frontend/src/components/KanbanCard.tsx` - card display.
@@ -23,7 +23,7 @@ The frontend also supports local authentication and an AI chat sidebar that appl
 
 - Keep the UI simple and aligned with the MVP goals.
 - Convert the demo into a real authenticated app.
-- Load and save board state through the backend API.
+- Load, create, select, and save user-scoped board state through the backend API.
 - Add AI chat sidebar and structured board update handling.
 - Add frontend tests for login, board persistence, and AI chat.
 
