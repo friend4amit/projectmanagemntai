@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { apiFetch } from "@/lib/api";
 import { type BoardData, applyBoardUpdate } from "@/lib/kanban";
 
 type AIMessage = {
@@ -33,7 +34,7 @@ export function AIChatPanel({ board, boardId, onBoardUpdate }: AIChatPanelProps)
     setError(null);
 
     try {
-      const response = await fetch("/api/ai/chat", {
+      const response = await apiFetch("/api/ai/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: userMessage.text, boardId }),

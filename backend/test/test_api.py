@@ -48,6 +48,16 @@ def test_user_can_create_and_update_multiple_boards():
     assert original["columns"][0]["title"] == "Backlog"
 
 
+def test_new_board_starts_blank_not_copied_from_existing_board():
+    with TestClient(app) as client:
+        assert register(client, "alice").status_code == 201
+        created = client.post("/api/boards", json={"title": "Second board"})
+        board = client.get(f"/api/boards/{created.json()['id']}").json()
+    assert board["cards"] == {}
+    assert all(column["cardIds"] == [] for column in board["columns"])
+    assert [column["title"] for column in board["columns"]] == ["Backlog", "Discovery", "In Progress", "Review", "Done"]
+
+
 def test_users_cannot_access_each_others_boards():
     with TestClient(app) as alice, TestClient(app) as bob:
         assert register(alice, "alice").status_code == 201
@@ -63,3 +73,11 @@ def test_logout_revokes_the_session():
         assert client.post("/api/logout").status_code == 200
         response = client.get("/api/boards")
     assert response.status_code == 401
+
+
+def test_static_fallback_rejects_path_traversal():
+    with TestClient(app) as client:
+        response = client.get("/..%2fmain.py")
+    assert response.status_code == 200
+    assert b"Project Management MVP Backend" not in response.content
+    assert b"<!DOCTYPE html>" in response.content

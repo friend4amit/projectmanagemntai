@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors, closestCorners, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { AIChatPanel } from "@/components/AIChatPanel";
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
 import type { AuthenticatedUser } from "@/components/LoginForm";
+import { apiFetch } from "@/lib/api";
 import { createId, initialData, moveCard, type BoardData } from "@/lib/kanban";
 
 type BoardSummary = { id: number; title: string };
@@ -16,7 +17,7 @@ type KanbanBoardProps = {
 };
 
 const syncBoard = async (boardId: number, nextBoard: BoardData) => {
-  const response = await fetch(`/api/boards/${boardId}`, {
+  const response = await apiFetch(`/api/boards/${boardId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(nextBoard),
@@ -34,11 +35,12 @@ export const KanbanBoard = ({ user, onLogout }: KanbanBoardProps) => {
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const saveQueue = useRef(Promise.resolve());
 
   useEffect(() => {
     const loadBoards = async () => {
       try {
-        const response = await fetch("/api/boards");
+        const response = await apiFetch("/api/boards");
         if (!response.ok) throw new Error(`Board list failed: ${response.status}`);
         const data: BoardSummary[] = await response.json();
         setBoards(data);
@@ -58,7 +60,7 @@ export const KanbanBoard = ({ user, onLogout }: KanbanBoardProps) => {
       setIsLoading(true);
       setLoadError(null);
       try {
-        const response = await fetch(`/api/boards/${boardId}`);
+        const response = await apiFetch(`/api/boards/${boardId}`);
         if (!response.ok) throw new Error(`Board load failed: ${response.status}`);
         setBoard(await response.json());
       } catch (error) {
@@ -74,14 +76,16 @@ export const KanbanBoard = ({ user, onLogout }: KanbanBoardProps) => {
   const persist = (nextBoard: BoardData) => {
     if (boardId === null) return;
     setBoard(nextBoard);
-    void syncBoard(boardId, nextBoard).catch((error) => {
-      setLoadError("Unable to save this board. Refresh and try again.");
-      console.error(error);
-    });
+    saveQueue.current = saveQueue.current
+      .then(() => syncBoard(boardId, nextBoard))
+      .catch((error) => {
+        setLoadError("Unable to save this board. Refresh and try again.");
+        console.error(error);
+      });
   };
 
   const handleLogout = async () => {
-    await fetch("/api/logout", { method: "POST" });
+    await apiFetch("/api/logout", { method: "POST" });
     onLogout();
   };
 
@@ -89,7 +93,7 @@ export const KanbanBoard = ({ user, onLogout }: KanbanBoardProps) => {
     event.preventDefault();
     if (!newBoardTitle.trim()) return;
     try {
-      const response = await fetch("/api/boards", {
+      const response = await apiFetch("/api/boards", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: newBoardTitle.trim() }),
@@ -154,7 +158,7 @@ export const KanbanBoard = ({ user, onLogout }: KanbanBoardProps) => {
         <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <div className="grid gap-6 xl:grid-cols-[1.6fr_0.9fr]">
             <section className="grid gap-6 lg:grid-cols-5">
-              {board.columns.map((column) => <KanbanColumn key={column.id} column={column} cards={column.cardIds.map((cardId) => board.cards[cardId])} onRename={handleRenameColumn} onAddCard={handleAddCard} onDeleteCard={handleDeleteCard} />)}
+              {board.columns.map((column) => <KanbanColumn key={column.id} column={column} cards={column.cardIds.map((cardId) => board.cards[cardId]).filter(Boolean)} onRename={handleRenameColumn} onAddCard={handleAddCard} onDeleteCard={handleDeleteCard} />)}
             </section>
             <AIChatPanel board={board} boardId={boardId} onBoardUpdate={persist} />
           </div>

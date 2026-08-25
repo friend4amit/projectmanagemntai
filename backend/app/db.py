@@ -1,4 +1,7 @@
+import hashlib
+import hmac
 import json
+import secrets
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -7,6 +10,25 @@ DB_PATH = Path(__file__).resolve().parent / "database.db"
 BOARD_JSON_PATH = Path(__file__).resolve().parent / "board.json"
 DEFAULT_USER = {"username": "user", "password": "password"}
 DEFAULT_BOARD_TITLE = "My first board"
+
+PBKDF2_ITERATIONS = 600_000
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), PBKDF2_ITERATIONS)
+    return f"pbkdf2_sha256${PBKDF2_ITERATIONS}${salt}${digest.hex()}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    try:
+        algorithm, iterations, salt, expected_hex = stored.split("$")
+    except ValueError:
+        return False
+    if algorithm != "pbkdf2_sha256":
+        return False
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), int(iterations))
+    return hmac.compare_digest(digest.hex(), expected_hex)
 
 DEFAULT_BOARD = {
     "columns": [
@@ -43,6 +65,14 @@ def _load_default_board() -> dict[str, Any]:
         except json.JSONDecodeError:
             pass
     return DEFAULT_BOARD
+
+
+def _blank_board() -> dict[str, Any]:
+    columns = _load_default_board()["columns"]
+    return {
+        "columns": [{"id": column["id"], "title": column["title"], "cardIds": []} for column in columns],
+        "cards": {},
+    }
 
 
 def _user_from_row(row: sqlite3.Row) -> dict[str, Any]:
@@ -82,7 +112,7 @@ def init_db() -> None:
 
         connection.execute(
             "INSERT OR IGNORE INTO users (username, password) VALUES (?, ?)",
-            (DEFAULT_USER["username"], DEFAULT_USER["password"]),
+            (DEFAULT_USER["username"], hash_password(DEFAULT_USER["password"])),
         )
         user = connection.execute(
             "SELECT id FROM users WHERE username = ?", (DEFAULT_USER["username"],)
@@ -103,7 +133,7 @@ def create_user(username: str, password: str) -> dict[str, Any]:
     try:
         with connection:
             cursor = connection.execute(
-                "INSERT INTO users (username, password) VALUES (?, ?)", (username, password)
+                "INSERT INTO users (username, password) VALUES (?, ?)", (username, hash_password(password))
             )
             user_id = cursor.lastrowid
             connection.execute(
@@ -121,10 +151,12 @@ def authenticate_user(username: str, password: str) -> dict[str, Any] | None:
     init_db()
     connection = get_connection()
     row = connection.execute(
-        "SELECT id, username FROM users WHERE username = ? AND password = ?", (username, password)
+        "SELECT id, username, password FROM users WHERE username = ?", (username,)
     ).fetchone()
     connection.close()
-    return _user_from_row(row) if row else None
+    if row is None or not verify_password(password, row["password"]):
+        return None
+    return _user_from_row(row)
 
 
 def get_user(user_id: int) -> dict[str, Any] | None:
@@ -148,7 +180,7 @@ def create_board(user_id: int, title: str) -> dict[str, Any]:
     with connection:
         cursor = connection.execute(
             "INSERT INTO boards (user_id, title, data) VALUES (?, ?, ?)",
-            (user_id, title.strip(), json.dumps(_load_default_board(), indent=2)),
+            (user_id, title.strip(), json.dumps(_blank_board(), indent=2)),
         )
     board = {"id": cursor.lastrowid, "title": title.strip()}
     connection.close()

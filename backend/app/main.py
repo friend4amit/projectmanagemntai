@@ -3,6 +3,7 @@ from pathlib import Path
 from secrets import token_urlsafe
 
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Response, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
@@ -27,6 +28,16 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Project Management MVP Backend", lifespan=lifespan)
+
+# Allows `npm run dev` (Next.js on :3000) to call this backend directly during local development.
+# Irrelevant in production, where the backend serves the frontend from the same origin.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 static_dir = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -129,7 +140,7 @@ def read_index() -> FileResponse:
 def read_static(full_path: str) -> FileResponse:
     if full_path.startswith("api/"):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-    candidate = static_dir / full_path
-    if candidate.is_file():
+    candidate = (static_dir / full_path).resolve()
+    if candidate.is_relative_to(static_dir) and candidate.is_file():
         return FileResponse(candidate)
     return FileResponse(static_dir / "index.html")

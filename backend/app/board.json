@@ -12,8 +12,7 @@
       "id": "col-discovery",
       "title": "Discovery",
       "cardIds": [
-        "card-3",
-        "card-skapnqmsfq5dsq"
+        "card-3"
       ]
     },
     {
@@ -80,11 +79,6 @@
       "id": "card-8",
       "title": "Close onboarding sprint",
       "details": "Document release notes and share internally."
-    },
-    "card-skapnqmsfq5dsq": {
-      "id": "card-skapnqmsfq5dsq",
-      "title": "test",
-      "details": "test"
     }
   }
 }

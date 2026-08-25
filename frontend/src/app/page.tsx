@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { KanbanBoard } from "@/components/KanbanBoard";
 import { LoginForm, type AuthenticatedUser } from "@/components/LoginForm";
+import { apiFetch } from "@/lib/api";
 
 export default function Home() {
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
@@ -11,7 +12,7 @@ export default function Home() {
   useEffect(() => {
     const restoreSession = async () => {
       try {
-        const response = await fetch("/api/auth/me");
+        const response = await apiFetch("/api/auth/me");
         if (response.ok) {
           setUser(await response.json());
         }

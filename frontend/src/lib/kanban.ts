@@ -167,6 +167,37 @@ export const createId = (prefix: string) => {
   return `${prefix}-${randomPart}${timePart}`;
 };
 
+const isValidBoardData = (value: unknown): value is BoardData => {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  if (!Array.isArray(candidate.columns) || typeof candidate.cards !== "object" || candidate.cards === null) {
+    return false;
+  }
+
+  const cards = candidate.cards as Record<string, unknown>;
+  for (const [cardId, card] of Object.entries(cards)) {
+    if (!card || typeof card !== "object") return false;
+    const { id, title, details } = card as Record<string, unknown>;
+    if (id !== cardId || typeof title !== "string" || typeof details !== "string") return false;
+  }
+
+  const placedCardIds: string[] = [];
+  const columnIds = new Set<string>();
+  for (const column of candidate.columns) {
+    if (!column || typeof column !== "object") return false;
+    const { id, title, cardIds } = column as Record<string, unknown>;
+    if (typeof id !== "string" || typeof title !== "string" || !Array.isArray(cardIds)) return false;
+    if (columnIds.has(id)) return false;
+    columnIds.add(id);
+    for (const cardId of cardIds) {
+      if (typeof cardId !== "string" || !(cardId in cards) || placedCardIds.includes(cardId)) return false;
+      placedCardIds.push(cardId);
+    }
+  }
+
+  return true;
+};
+
 export const applyBoardUpdate = (board: BoardData, boardUpdate: unknown): BoardData => {
   if (!boardUpdate || typeof boardUpdate !== "object" || Array.isArray(boardUpdate)) {
     return board;
@@ -174,12 +205,8 @@ export const applyBoardUpdate = (board: BoardData, boardUpdate: unknown): BoardD
 
   const update = boardUpdate as Record<string, unknown>;
 
-  if (
-    Array.isArray(update.columns) &&
-    typeof update.cards === "object" &&
-    update.cards !== null
-  ) {
-    return update as BoardData;
+  if (Array.isArray(update.columns) && typeof update.cards === "object" && update.cards !== null) {
+    return isValidBoardData(update) ? update : board;
   }
 
   const findColumn = (value: string) => {
