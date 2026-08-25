@@ -230,16 +230,30 @@ Tasks:
 - Update backend and frontend tests for accounts, ownership, and board switching.
 
 Status:
-- In progress.
+- Completed (verified 2026-08-25). `backend/app/main.py` now exposes `/api/auth/register`, `/api/auth/login`, `/api/auth/me`, and a session-checking `get_current_user` dependency that guards `/api/logout`, `/api/boards*`, and `/api/ai/chat`. `backend/app/db.py` scopes every board read/write by `user_id` in the SQL `WHERE` clause and supports a `title` per board with `list_boards`/`create_board`. The frontend `LoginForm.tsx` calls the real backend endpoints (register/login) instead of a local-only flag, and `KanbanBoard.tsx` adds a board picker and "Create board" form.
 
 Success criteria:
-- A newly registered user cannot read or update another user's boards.
-- A user can create and select more than one board, and changes persist to the selected board only.
-- The existing `user` / `password` login and its existing board continue to work after migration.
+- A newly registered user cannot read or update another user's boards. Met — `read_board`/`write_board` filter by `user_id`, and `backend/test/test_api.py::test_users_cannot_access_each_others_boards` covers this.
+- A user can create and select more than one board, and changes persist to the selected board only. Met — `POST /api/boards`, board `<select>` in `KanbanBoard.tsx`, and `test_user_can_create_and_update_multiple_boards`.
+- The existing `user` / `password` login and its existing board continue to work after migration. Met — `init_db()` seeds the default `user`/`password` account and its board on first run; `test_default_user_can_log_in_and_has_a_board` covers this.
 
 Verification:
-- Backend tests cover registration, login, ownership boundaries, and multi-board persistence.
-- Frontend tests cover board selection and creation.
+- Backend tests cover registration, login, ownership boundaries, and multi-board persistence (`backend/test/test_api.py`).
+- Frontend tests cover board selection and creation (not yet confirmed for board-switching UI beyond existing `KanbanBoard.test.tsx` coverage — see Known issues).
+
+## Known issues (from `review.md`, re-verified 2026-08-25)
+
+An earlier code review (`review.md`, written against a pre-Part-11 checkout) is now partly stale — its two High findings about missing backend auth are fixed by Part 11. Re-verifying each finding against the current checkout:
+
+- Fixed: backend had no auth on board/AI/logout routes -> now guarded by `get_current_user` (Part 11).
+- Still live (Medium): `KanbanBoard.tsx`'s `persist()` still fires `void syncBoard(...)` without awaiting or serializing saves, so rapid edits can still complete out of order and silently overwrite a newer change with an older one; it does now check `response.ok` and surface a `loadError`, which the original review had flagged as missing.
+- Still live (Medium): `backend/app/schemas.py`'s `AIResponse.boardUpdate` still accepts an arbitrary `dict[str, Any]`, and `frontend/src/lib/kanban.ts`'s `applyBoardUpdate()` still casts any object with `columns`/`cards` straight to `BoardData` with no invariant checks (unique ids, `cardIds` referencing real cards, etc.).
+- Still live (Medium): the checked-in `backend/app/static` build is stale versus `frontend/src` (`index.html` dated 2026-08-05 12:02 predates `page.tsx`, `AIChatPanel.tsx`, `KanbanBoard.tsx`, and `LoginForm.tsx`, all modified later the same day) — running the backend directly from this checkout serves an outdated UI missing later changes until the Docker image is rebuilt.
+- Still live (Medium): `frontend/tests/kanban.spec.ts` still navigates straight to `/` and asserts the "Kanban Studio" heading with no login step; given the current `page.tsx`, an unauthenticated session now renders `LoginForm` instead, so these tests do not exercise (and would not pass against) the authenticated app. Could not execute directly in this environment (Playwright's Chromium binary is not installed here), so this is a source-level finding, matching the original review's own limitation.
+- Fixed: `npm run lint` now passes (exit code 0) — the `page.tsx` `set-state-in-effect` issue from the original review is resolved.
+- Still live (Low): `Dockerfile` installs backend dependencies with plain `pip`; no `uv` project file or lockfile exists, contradicting the `uv` decision recorded in `AGENTS.md`.
+- Still live (Low): `scripts/start.ps1` and `scripts/stop.ps1` still run `Set-ExecutionPolicy -Scope CurrentUser`, a persistent side effect unrelated to starting/stopping the app.
+- Not re-verified: backend pytest was not runnable in this environment (no Python interpreter available), consistent with the original review's own note.
 
 ## Coding standards
 
