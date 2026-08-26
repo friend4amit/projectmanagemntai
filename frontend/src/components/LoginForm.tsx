@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { apiFetch } from "@/lib/api";
+import { apiSendJson } from "@/lib/api";
 
 export type AuthenticatedUser = {
   id: number;
@@ -25,11 +25,11 @@ export function LoginForm({ onLogin }: LoginFormProps) {
     setError(null);
 
     try {
-      const response = await apiFetch(isRegistering ? "/api/auth/register" : "/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      });
+      const response = await apiSendJson(
+        isRegistering ? "/api/auth/register" : "/api/auth/login",
+        "POST",
+        { username, password }
+      );
       if (!response.ok) {
         const data = await response.json();
         throw new Error(data.detail || "Unable to sign in.");

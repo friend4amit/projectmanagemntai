@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors, closestCorners, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { AIChatPanel } from "@/components/AIChatPanel";
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
 import type { AuthenticatedUser } from "@/components/LoginForm";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiSendJson } from "@/lib/api";
 import { createId, initialData, moveCard, type BoardData } from "@/lib/kanban";
 
 type BoardSummary = { id: number; title: string };
@@ -17,11 +17,7 @@ type KanbanBoardProps = {
 };
 
 const syncBoard = async (boardId: number, nextBoard: BoardData) => {
-  const response = await apiFetch(`/api/boards/${boardId}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(nextBoard),
-  });
+  const response = await apiSendJson(`/api/boards/${boardId}`, "PUT", nextBoard);
   if (!response.ok) {
     throw new Error(`Board save failed: ${response.status}`);
   }
@@ -34,7 +30,7 @@ export const KanbanBoard = ({ user, onLogout }: KanbanBoardProps) => {
   const [newBoardTitle, setNewBoardTitle] = useState("");
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameTitle, setRenameTitle] = useState("");
   const saveQueue = useRef(Promise.resolve());
@@ -48,7 +44,7 @@ export const KanbanBoard = ({ user, onLogout }: KanbanBoardProps) => {
         setBoards(data);
         setBoardId(data[0]?.id ?? null);
       } catch (error) {
-        setLoadError("Unable to load your boards.");
+        setErrorMessage("Unable to load your boards.");
         setIsLoading(false);
         console.error(error);
       }
@@ -61,13 +57,13 @@ export const KanbanBoard = ({ user, onLogout }: KanbanBoardProps) => {
     setIsRenaming(false);
     const loadBoard = async () => {
       setIsLoading(true);
-      setLoadError(null);
+      setErrorMessage(null);
       try {
         const response = await apiFetch(`/api/boards/${boardId}`);
         if (!response.ok) throw new Error(`Board load failed: ${response.status}`);
         setBoard(await response.json());
       } catch (error) {
-        setLoadError("Unable to load this board.");
+        setErrorMessage("Unable to load this board.");
         console.error(error);
       } finally {
         setIsLoading(false);
@@ -82,7 +78,7 @@ export const KanbanBoard = ({ user, onLogout }: KanbanBoardProps) => {
     saveQueue.current = saveQueue.current
       .then(() => syncBoard(boardId, nextBoard))
       .catch((error) => {
-        setLoadError("Unable to save this board. Refresh and try again.");
+        setErrorMessage("Unable to save this board. Refresh and try again.");
         console.error(error);
       });
   };
@@ -96,25 +92,20 @@ export const KanbanBoard = ({ user, onLogout }: KanbanBoardProps) => {
     event.preventDefault();
     if (!newBoardTitle.trim()) return;
     try {
-      const response = await apiFetch("/api/boards", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: newBoardTitle.trim() }),
-      });
+      const response = await apiSendJson("/api/boards", "POST", { title: newBoardTitle.trim() });
       if (!response.ok) throw new Error(`Board creation failed: ${response.status}`);
       const created: BoardSummary = await response.json();
       setBoards((current) => [created, ...current]);
       setNewBoardTitle("");
       setBoardId(created.id);
     } catch (error) {
-      setLoadError("Unable to create a board.");
+      setErrorMessage("Unable to create a board.");
       console.error(error);
     }
   };
 
-  const currentBoard = boards.find((item) => item.id === boardId) ?? null;
-
   const startRename = () => {
+    const currentBoard = boards.find((item) => item.id === boardId);
     if (!currentBoard) return;
     setRenameTitle(currentBoard.title);
     setIsRenaming(true);
@@ -124,17 +115,13 @@ export const KanbanBoard = ({ user, onLogout }: KanbanBoardProps) => {
     event.preventDefault();
     if (boardId === null || !renameTitle.trim()) return;
     try {
-      const response = await apiFetch(`/api/boards/${boardId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: renameTitle.trim() }),
-      });
+      const response = await apiSendJson(`/api/boards/${boardId}`, "PATCH", { title: renameTitle.trim() });
       if (!response.ok) throw new Error(`Board rename failed: ${response.status}`);
       const updated: BoardSummary = await response.json();
       setBoards((current) => current.map((item) => (item.id === boardId ? updated : item)));
       setIsRenaming(false);
     } catch (error) {
-      setLoadError("Unable to rename this board.");
+      setErrorMessage("Unable to rename this board.");
       console.error(error);
     }
   };
@@ -145,7 +132,7 @@ export const KanbanBoard = ({ user, onLogout }: KanbanBoardProps) => {
     try {
       const response = await apiFetch(`/api/boards/${boardId}`, { method: "DELETE" });
       if (response.status === 400) {
-        setLoadError("You can't delete your only board.");
+        setErrorMessage("You can't delete your only board.");
         return;
       }
       if (!response.ok) throw new Error(`Board delete failed: ${response.status}`);
@@ -153,35 +140,59 @@ export const KanbanBoard = ({ user, onLogout }: KanbanBoardProps) => {
       setBoards(remaining);
       setBoardId(remaining[0]?.id ?? null);
     } catch (error) {
-      setLoadError("Unable to delete this board.");
+      setErrorMessage("Unable to delete this board.");
       console.error(error);
     }
   };
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
-  const cardsById = useMemo(() => board.cards, [board.cards]);
 
   const handleDragStart = (event: DragStartEvent) => setActiveCardId(event.active.id as string);
+
   const handleDragEnd = (event: DragEndEvent) => {
     setActiveCardId(null);
     if (!event.over || event.active.id === event.over.id) return;
     persist({ ...board, columns: moveCard(board.columns, event.active.id as string, event.over.id as string) });
   };
-  const handleRenameColumn = (columnId: string, title: string) => persist({ ...board, columns: board.columns.map((column) => column.id === columnId ? { ...column, title } : column) });
+
+  const handleRenameColumn = (columnId: string, title: string) => {
+    persist({
+      ...board,
+      columns: board.columns.map((column) => (column.id === columnId ? { ...column, title } : column)),
+    });
+  };
+
   const handleAddCard = (columnId: string, title: string, details: string) => {
     const id = createId("card");
-    persist({ ...board, cards: { ...board.cards, [id]: { id, title, details: details || "No details yet." } }, columns: board.columns.map((column) => column.id === columnId ? { ...column, cardIds: [...column.cardIds, id] } : column) });
+    persist({
+      ...board,
+      cards: { ...board.cards, [id]: { id, title, details: details || "No details yet." } },
+      columns: board.columns.map((column) =>
+        column.id === columnId ? { ...column, cardIds: [...column.cardIds, id] } : column
+      ),
+    });
   };
-  const handleDeleteCard = (columnId: string, cardId: string) => persist({ ...board, cards: Object.fromEntries(Object.entries(board.cards).filter(([id]) => id !== cardId)), columns: board.columns.map((column) => column.id === columnId ? { ...column, cardIds: column.cardIds.filter((id) => id !== cardId) } : column) });
+
+  const handleDeleteCard = (columnId: string, cardId: string) => {
+    persist({
+      ...board,
+      cards: Object.fromEntries(Object.entries(board.cards).filter(([id]) => id !== cardId)),
+      columns: board.columns.map((column) =>
+        column.id === columnId
+          ? { ...column, cardIds: column.cardIds.filter((id) => id !== cardId) }
+          : column
+      ),
+    });
+  };
 
   if (isLoading) return <div className="flex min-h-screen items-center justify-center text-sm text-slate-700">Loading board...</div>;
   if (boardId === null) return <div className="flex min-h-screen items-center justify-center text-sm text-slate-700">No boards available.</div>;
 
-  const activeCard = activeCardId ? cardsById[activeCardId] : null;
+  const activeCard = activeCardId ? board.cards[activeCardId] : null;
 
   return (
     <div className="relative overflow-hidden">
-      {loadError ? <div className="fixed left-4 top-4 rounded-2xl bg-amber-100 px-4 py-3 text-sm text-amber-950 shadow-[var(--shadow)]">{loadError}</div> : null}
+      {errorMessage ? <div className="fixed left-4 top-4 rounded-2xl bg-amber-100 px-4 py-3 text-sm text-amber-950 shadow-[var(--shadow)]">{errorMessage}</div> : null}
       <main className="relative mx-auto flex min-h-screen max-w-[2200px] flex-col gap-10 px-6 pb-16 pt-12">
         <header className="flex flex-col gap-6 rounded-[32px] border border-[var(--stroke)] bg-white/80 p-8 shadow-[var(--shadow)] backdrop-blur">
           <div className="flex flex-wrap items-start justify-between gap-6">
@@ -203,18 +214,18 @@ export const KanbanBoard = ({ user, onLogout }: KanbanBoardProps) => {
                 </div>
               </form>
             ) : (
-              <label className="flex min-w-56 flex-1 flex-col gap-2 text-sm font-semibold text-[var(--navy-dark)]">Current board
-                <select value={boardId ?? ""} onChange={(event) => setBoardId(Number(event.target.value))} className="rounded-xl border border-[var(--stroke)] bg-white px-3 py-2 font-normal">
-                  {boards.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
-                </select>
-              </label>
+              <>
+                <label className="flex min-w-56 flex-1 flex-col gap-2 text-sm font-semibold text-[var(--navy-dark)]">Current board
+                  <select value={boardId} onChange={(event) => setBoardId(Number(event.target.value))} className="rounded-xl border border-[var(--stroke)] bg-white px-3 py-2 font-normal">
+                    {boards.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
+                  </select>
+                </label>
+                <div className="flex gap-2">
+                  <button type="button" onClick={startRename} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-50">Rename board</button>
+                  <button type="button" onClick={handleDeleteBoard} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-50">Delete board</button>
+                </div>
+              </>
             )}
-            {!isRenaming ? (
-              <div className="flex gap-2">
-                <button type="button" onClick={startRename} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-50">Rename board</button>
-                <button type="button" onClick={handleDeleteBoard} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-50">Delete board</button>
-              </div>
-            ) : null}
             <form onSubmit={handleCreateBoard} className="flex flex-1 gap-2">
               <input value={newBoardTitle} onChange={(event) => setNewBoardTitle(event.target.value)} placeholder="New board name" className="min-w-40 flex-1 rounded-xl border border-[var(--stroke)] bg-white px-3 py-2 text-sm" />
               <button type="submit" className="rounded-xl bg-[var(--secondary-purple)] px-4 py-2 text-sm font-semibold text-white">Create board</button>

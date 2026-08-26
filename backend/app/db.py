@@ -3,8 +3,9 @@ import hmac
 import json
 import secrets
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 DB_PATH = Path(__file__).resolve().parent / "database.db"
 BOARD_JSON_PATH = Path(__file__).resolve().parent / "board.json"
@@ -12,23 +13,6 @@ DEFAULT_USER = {"username": "user", "password": "password"}
 DEFAULT_BOARD_TITLE = "My first board"
 
 PBKDF2_ITERATIONS = 600_000
-
-
-def hash_password(password: str) -> str:
-    salt = secrets.token_hex(16)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), PBKDF2_ITERATIONS)
-    return f"pbkdf2_sha256${PBKDF2_ITERATIONS}${salt}${digest.hex()}"
-
-
-def verify_password(password: str, stored: str) -> bool:
-    try:
-        algorithm, iterations, salt, expected_hex = stored.split("$")
-    except ValueError:
-        return False
-    if algorithm != "pbkdf2_sha256":
-        return False
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), int(iterations))
-    return hmac.compare_digest(digest.hex(), expected_hex)
 
 DEFAULT_BOARD = {
     "columns": [
@@ -51,11 +35,33 @@ DEFAULT_BOARD = {
 }
 
 
-def get_connection() -> sqlite3.Connection:
+def hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), PBKDF2_ITERATIONS)
+    return f"pbkdf2_sha256${PBKDF2_ITERATIONS}${salt}${digest.hex()}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    try:
+        algorithm, iterations, salt, expected_hex = stored.split("$")
+    except ValueError:
+        return False
+    if algorithm != "pbkdf2_sha256":
+        return False
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), int(iterations))
+    return hmac.compare_digest(digest.hex(), expected_hex)
+
+
+@contextmanager
+def _connect() -> Iterator[sqlite3.Connection]:
+    """Open a connection and always close it. Writes still need an inner `with connection:` to commit."""
     connection = sqlite3.connect(DB_PATH, check_same_thread=False)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+    try:
+        yield connection
+    finally:
+        connection.close()
 
 
 def _load_default_board() -> dict[str, Any]:
@@ -75,132 +81,121 @@ def _blank_board() -> dict[str, Any]:
     }
 
 
+def _insert_board(connection: sqlite3.Connection, user_id: int, title: str, board: dict[str, Any]) -> sqlite3.Cursor:
+    return connection.execute(
+        "INSERT INTO boards (user_id, title, data) VALUES (?, ?, ?)",
+        (user_id, title, json.dumps(board, indent=2)),
+    )
+
+
 def _user_from_row(row: sqlite3.Row) -> dict[str, Any]:
     return {"id": row["id"], "username": row["username"]}
 
 
 def init_db() -> None:
-    connection = get_connection()
-    with connection:
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY,
-                username TEXT UNIQUE NOT NULL,
-                password TEXT NOT NULL
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS boards (
-                id INTEGER PRIMARY KEY,
-                user_id INTEGER NOT NULL,
-                title TEXT NOT NULL DEFAULT 'My first board',
-                data TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(user_id) REFERENCES users(id)
-            )
-            """
-        )
-        board_columns = {row["name"] for row in connection.execute("PRAGMA table_info(boards)")}
-        if "title" not in board_columns:
+    with _connect() as connection:
+        with connection:
             connection.execute(
-                "ALTER TABLE boards ADD COLUMN title TEXT NOT NULL DEFAULT 'My first board'"
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY,
+                    username TEXT UNIQUE NOT NULL,
+                    password TEXT NOT NULL
+                )
+                """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS boards (
+                    id INTEGER PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    title TEXT NOT NULL DEFAULT 'My first board',
+                    data TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(user_id) REFERENCES users(id)
+                )
+                """
+            )
+            board_columns = {row["name"] for row in connection.execute("PRAGMA table_info(boards)")}
+            if "title" not in board_columns:
+                connection.execute(
+                    "ALTER TABLE boards ADD COLUMN title TEXT NOT NULL DEFAULT 'My first board'"
+                )
 
-        connection.execute(
-            "INSERT OR IGNORE INTO users (username, password) VALUES (?, ?)",
-            (DEFAULT_USER["username"], hash_password(DEFAULT_USER["password"])),
-        )
-        user = connection.execute(
-            "SELECT id FROM users WHERE username = ?", (DEFAULT_USER["username"],)
-        ).fetchone()
-        if user is None:
-            raise RuntimeError("Failed to initialize default user")
-        if connection.execute("SELECT id FROM boards WHERE user_id = ?", (user["id"],)).fetchone() is None:
             connection.execute(
-                "INSERT INTO boards (user_id, title, data) VALUES (?, ?, ?)",
-                (user["id"], DEFAULT_BOARD_TITLE, json.dumps(_load_default_board(), indent=2)),
+                "INSERT OR IGNORE INTO users (username, password) VALUES (?, ?)",
+                (DEFAULT_USER["username"], hash_password(DEFAULT_USER["password"])),
             )
-    connection.close()
+            user = connection.execute(
+                "SELECT id FROM users WHERE username = ?", (DEFAULT_USER["username"],)
+            ).fetchone()
+            if user is None:
+                raise RuntimeError("Failed to initialize default user")
+            if connection.execute("SELECT id FROM boards WHERE user_id = ?", (user["id"],)).fetchone() is None:
+                _insert_board(connection, user["id"], DEFAULT_BOARD_TITLE, _load_default_board())
 
 
 def create_user(username: str, password: str) -> dict[str, Any]:
     init_db()
-    connection = get_connection()
-    try:
-        with connection:
-            cursor = connection.execute(
-                "INSERT INTO users (username, password) VALUES (?, ?)", (username, hash_password(password))
-            )
-            user_id = cursor.lastrowid
-            connection.execute(
-                "INSERT INTO boards (user_id, title, data) VALUES (?, ?, ?)",
-                (user_id, DEFAULT_BOARD_TITLE, json.dumps(_load_default_board(), indent=2)),
-            )
+    with _connect() as connection:
+        try:
+            with connection:
+                cursor = connection.execute(
+                    "INSERT INTO users (username, password) VALUES (?, ?)", (username, hash_password(password))
+                )
+                user_id = cursor.lastrowid
+                _insert_board(connection, user_id, DEFAULT_BOARD_TITLE, _load_default_board())
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("Username is already in use") from exc
         return {"id": user_id, "username": username}
-    except sqlite3.IntegrityError as exc:
-        raise ValueError("Username is already in use") from exc
-    finally:
-        connection.close()
 
 
 def authenticate_user(username: str, password: str) -> dict[str, Any] | None:
     init_db()
-    connection = get_connection()
-    row = connection.execute(
-        "SELECT id, username, password FROM users WHERE username = ?", (username,)
-    ).fetchone()
-    connection.close()
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT id, username, password FROM users WHERE username = ?", (username,)
+        ).fetchone()
     if row is None or not verify_password(password, row["password"]):
         return None
     return _user_from_row(row)
 
 
 def get_user(user_id: int) -> dict[str, Any] | None:
-    connection = get_connection()
-    row = connection.execute("SELECT id, username FROM users WHERE id = ?", (user_id,)).fetchone()
-    connection.close()
+    with _connect() as connection:
+        row = connection.execute("SELECT id, username FROM users WHERE id = ?", (user_id,)).fetchone()
     return _user_from_row(row) if row else None
 
 
 def list_boards(user_id: int) -> list[dict[str, Any]]:
-    connection = get_connection()
-    rows = connection.execute(
-        "SELECT id, title FROM boards WHERE user_id = ? ORDER BY updated_at DESC, id DESC", (user_id,)
-    ).fetchall()
-    connection.close()
+    with _connect() as connection:
+        rows = connection.execute(
+            "SELECT id, title FROM boards WHERE user_id = ? ORDER BY updated_at DESC, id DESC", (user_id,)
+        ).fetchall()
     return [{"id": row["id"], "title": row["title"]} for row in rows]
 
 
 def create_board(user_id: int, title: str) -> dict[str, Any]:
-    connection = get_connection()
-    with connection:
-        cursor = connection.execute(
-            "INSERT INTO boards (user_id, title, data) VALUES (?, ?, ?)",
-            (user_id, title.strip(), json.dumps(_blank_board(), indent=2)),
-        )
-    board = {"id": cursor.lastrowid, "title": title.strip()}
-    connection.close()
-    return board
+    board_title = title.strip()
+    with _connect() as connection:
+        with connection:
+            cursor = _insert_board(connection, user_id, board_title, _blank_board())
+        return {"id": cursor.lastrowid, "title": board_title}
 
 
 def rename_board(user_id: int, board_id: int, title: str) -> bool:
-    connection = get_connection()
-    with connection:
-        updated = connection.execute(
-            "UPDATE boards SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?",
-            (title.strip(), board_id, user_id),
-        )
-    connection.close()
-    return updated.rowcount > 0
+    with _connect() as connection:
+        with connection:
+            updated = connection.execute(
+                "UPDATE boards SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?",
+                (title.strip(), board_id, user_id),
+            )
+        return updated.rowcount > 0
 
 
 def delete_board(user_id: int, board_id: int) -> bool:
-    connection = get_connection()
-    try:
+    with _connect() as connection:
         owned = connection.execute(
             "SELECT id FROM boards WHERE id = ? AND user_id = ?", (board_id, user_id)
         ).fetchone()
@@ -214,25 +209,21 @@ def delete_board(user_id: int, board_id: int) -> bool:
         with connection:
             connection.execute("DELETE FROM boards WHERE id = ? AND user_id = ?", (board_id, user_id))
         return True
-    finally:
-        connection.close()
 
 
 def read_board(user_id: int, board_id: int) -> dict[str, Any] | None:
-    connection = get_connection()
-    row = connection.execute(
-        "SELECT data FROM boards WHERE id = ? AND user_id = ?", (board_id, user_id)
-    ).fetchone()
-    connection.close()
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT data FROM boards WHERE id = ? AND user_id = ?", (board_id, user_id)
+        ).fetchone()
     return json.loads(row["data"]) if row else None
 
 
 def write_board(user_id: int, board_id: int, board_data: dict[str, Any]) -> bool:
-    connection = get_connection()
-    with connection:
-        updated = connection.execute(
-            "UPDATE boards SET data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?",
-            (json.dumps(board_data, indent=2), board_id, user_id),
-        )
-    connection.close()
-    return updated.rowcount > 0
+    with _connect() as connection:
+        with connection:
+            updated = connection.execute(
+                "UPDATE boards SET data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?",
+                (json.dumps(board_data, indent=2), board_id, user_id),
+            )
+        return updated.rowcount > 0

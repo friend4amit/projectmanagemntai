@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 from secrets import token_urlsafe
+from typing import Annotated
 
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -54,12 +55,15 @@ static_dir = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
-def get_current_user(pm_session: str | None = Cookie(default=None)) -> dict[str, int | str]:
+def get_current_user(pm_session: str | None = Cookie(default=None)) -> UserResponse:
     user_id = sessions.get(pm_session or "")
     user = get_user(user_id) if user_id else None
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in required")
-    return user
+    return UserResponse(**user)
+
+
+CurrentUser = Annotated[UserResponse, Depends(get_current_user)]
 
 
 def start_session(response: Response, user_id: int) -> None:
@@ -93,8 +97,8 @@ def login(credentials: Credentials, response: Response) -> UserResponse:
 
 
 @app.get("/api/auth/me", response_model=UserResponse)
-def current_user(user: dict[str, int | str] = Depends(get_current_user)) -> UserResponse:
-    return UserResponse(**user)
+def current_user(user: CurrentUser) -> UserResponse:
+    return user
 
 
 @app.post("/api/logout")
@@ -106,26 +110,26 @@ def logout(response: Response, pm_session: str | None = Cookie(default=None)) ->
 
 
 @app.get("/api/boards", response_model=list[BoardSummary])
-def get_boards(user: dict[str, int | str] = Depends(get_current_user)) -> list[BoardSummary]:
-    return [BoardSummary(**board) for board in list_boards(int(user["id"]))]
+def get_boards(user: CurrentUser) -> list[BoardSummary]:
+    return [BoardSummary(**board) for board in list_boards(user.id)]
 
 
 @app.post("/api/boards", response_model=BoardSummary, status_code=status.HTTP_201_CREATED)
-def post_board(payload: CreateBoard, user: dict[str, int | str] = Depends(get_current_user)) -> BoardSummary:
-    return BoardSummary(**create_board(int(user["id"]), payload.title))
+def post_board(payload: CreateBoard, user: CurrentUser) -> BoardSummary:
+    return BoardSummary(**create_board(user.id, payload.title))
 
 
 @app.patch("/api/boards/{board_id}", response_model=BoardSummary)
-def patch_board(board_id: int, payload: CreateBoard, user: dict[str, int | str] = Depends(get_current_user)) -> BoardSummary:
-    if not rename_board(int(user["id"]), board_id, payload.title):
+def patch_board(board_id: int, payload: CreateBoard, user: CurrentUser) -> BoardSummary:
+    if not rename_board(user.id, board_id, payload.title):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Board not found")
     return BoardSummary(id=board_id, title=payload.title.strip())
 
 
 @app.delete("/api/boards/{board_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_board_route(board_id: int, user: dict[str, int | str] = Depends(get_current_user)) -> None:
+def delete_board_route(board_id: int, user: CurrentUser) -> None:
     try:
-        deleted = delete_board(int(user["id"]), board_id)
+        deleted = delete_board(user.id, board_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if not deleted:
@@ -133,30 +137,31 @@ def delete_board_route(board_id: int, user: dict[str, int | str] = Depends(get_c
 
 
 @app.get("/api/boards/{board_id}", response_model=BoardData)
-def get_board(board_id: int, user: dict[str, int | str] = Depends(get_current_user)) -> BoardData:
-    board_data = read_board(int(user["id"]), board_id)
+def get_board(board_id: int, user: CurrentUser) -> BoardData:
+    board_data = read_board(user.id, board_id)
     if board_data is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Board not found")
     try:
         return BoardData(**board_data)
     except ValidationError as exc:
-        raise HTTPException(status_code=500, detail="Saved board state is invalid") from exc
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Saved board state is invalid"
+        ) from exc
 
 
 @app.put("/api/boards/{board_id}", response_model=BoardData)
-def put_board(board_id: int, board_data: BoardData, user: dict[str, int | str] = Depends(get_current_user)) -> BoardData:
-    if not write_board(int(user["id"]), board_id, board_data.model_dump()):
+def put_board(board_id: int, board_data: BoardData, user: CurrentUser) -> BoardData:
+    if not write_board(user.id, board_id, board_data.model_dump()):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Board not found")
     return board_data
 
 
 @app.post("/api/ai/chat", response_model=AIResponse)
-def ai_chat(request: AIRequest, user: dict[str, int | str] = Depends(get_current_user)) -> AIResponse:
-    board = read_board(int(user["id"]), request.boardId)
+def ai_chat(request: AIRequest, user: CurrentUser) -> AIResponse:
+    board = read_board(user.id, request.boardId)
     if board is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Board not found")
-    response = call_openrouter(request.prompt, board)
-    return AIResponse(**response) if isinstance(response, dict) else AIResponse(message=str(response), boardUpdate=None)
+    return AIResponse(**call_openrouter(request.prompt, board))
 
 
 @app.get("/", response_class=FileResponse)

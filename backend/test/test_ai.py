@@ -6,6 +6,27 @@ import pytest
 from app import ai
 
 
+@pytest.fixture
+def api_key(monkeypatch):
+    monkeypatch.setattr(ai, "get_openrouter_api_key", lambda: "test-key")
+
+
+class FakeResponse:
+    """Minimal stand-in for the urlopen context manager, readable by json.load."""
+
+    def __init__(self, payload):
+        self._body = json.dumps(payload).encode("utf-8")
+
+    def read(self, *args):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
 def test_parse_response_text_with_clean_json():
     result = ai._parse_response_text('{"message": "Done.", "boardUpdate": null}')
     assert result == {"message": "Done.", "boardUpdate": None}
@@ -41,27 +62,14 @@ def test_call_openrouter_without_api_key_returns_message(monkeypatch):
     assert "OPENROUTER_API_KEY" in result["message"]
 
 
-def test_call_openrouter_parses_successful_response(monkeypatch):
-    monkeypatch.setattr(ai, "get_openrouter_api_key", lambda: "test-key")
-
-    class FakeResponse:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
+def test_call_openrouter_parses_successful_response(api_key, monkeypatch):
     payload = {"choices": [{"message": {"content": '{"message": "Hi there.", "boardUpdate": null}'}}]}
-
-    monkeypatch.setattr(ai, "urlopen", lambda request, timeout: FakeResponse())
-    monkeypatch.setattr(json, "load", lambda fp: payload)
+    monkeypatch.setattr(ai, "urlopen", lambda request, timeout: FakeResponse(payload))
     result = ai.call_openrouter("hi", board=None)
     assert result == {"message": "Hi there.", "boardUpdate": None}
 
 
-def test_call_openrouter_handles_http_error(monkeypatch):
-    monkeypatch.setattr(ai, "get_openrouter_api_key", lambda: "test-key")
-
+def test_call_openrouter_handles_http_error(api_key, monkeypatch):
     def raise_http_error(request, timeout):
         raise HTTPError(url="http://example.com", code=401, msg="Unauthorized", hdrs=None, fp=None)
 
@@ -71,9 +79,7 @@ def test_call_openrouter_handles_http_error(monkeypatch):
     assert "401" in result["message"]
 
 
-def test_call_openrouter_handles_url_error(monkeypatch):
-    monkeypatch.setattr(ai, "get_openrouter_api_key", lambda: "test-key")
-
+def test_call_openrouter_handles_url_error(api_key, monkeypatch):
     def raise_url_error(request, timeout):
         raise URLError("connection refused")
 

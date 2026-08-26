@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { apiFetch } from "@/lib/api";
+import { apiSendJson } from "@/lib/api";
 import { type BoardData, applyBoardUpdate } from "@/lib/kanban";
 
 type AIMessage = {
@@ -34,10 +34,9 @@ export function AIChatPanel({ board, boardId, onBoardUpdate }: AIChatPanelProps)
     setError(null);
 
     try {
-      const response = await apiFetch("/api/ai/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: userMessage.text, boardId }),
+      const response = await apiSendJson("/api/ai/chat", "POST", {
+        prompt: userMessage.text,
+        boardId,
       });
 
       if (!response.ok) {
@@ -51,8 +50,8 @@ export function AIChatPanel({ board, boardId, onBoardUpdate }: AIChatPanelProps)
       if (data.boardUpdate) {
         onBoardUpdate(applyBoardUpdate(board, data.boardUpdate));
       }
-    } catch (err) {
-      console.error(err);
+    } catch (requestError) {
+      console.error(requestError);
       setError("Unable to reach AI assistant. Try again later.");
     } finally {
       setIsSending(false);
@@ -99,7 +98,7 @@ export function AIChatPanel({ board, boardId, onBoardUpdate }: AIChatPanelProps)
             disabled={isSending}
             className="inline-flex h-12 w-full items-center justify-center rounded-3xl bg-[var(--primary-blue)] px-4 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:cursor-not-allowed disabled:bg-slate-400"
           >
-            {isSending ? "Sending…" : "Send to AI"}
+            {isSending ? "Sending..." : "Send to AI"}
           </button>
         </form>
 

@@ -81,6 +81,15 @@ const findColumnId = (columns: Column[], id: string) => {
   return columns.find((column) => column.cardIds.includes(id))?.id;
 };
 
+const withCardIds = (
+  columns: Column[],
+  columnId: string,
+  cardIds: string[]
+): Column[] =>
+  columns.map((column) =>
+    column.id === columnId ? { ...column, cardIds } : column
+  );
+
 export const moveCard = (
   columns: Column[],
   activeId: string,
@@ -108,11 +117,7 @@ export const moveCard = (
         (cardId) => cardId !== activeId
       );
       nextCardIds.push(activeId);
-      return columns.map((column) =>
-        column.id === activeColumnId
-          ? { ...column, cardIds: nextCardIds }
-          : column
-      );
+      return withCardIds(columns, activeColumnId, nextCardIds);
     }
 
     const oldIndex = activeColumn.cardIds.indexOf(activeId);
@@ -126,11 +131,7 @@ export const moveCard = (
     nextCardIds.splice(oldIndex, 1);
     nextCardIds.splice(newIndex, 0, activeId);
 
-    return columns.map((column) =>
-      column.id === activeColumnId
-        ? { ...column, cardIds: nextCardIds }
-        : column
-    );
+    return withCardIds(columns, activeColumnId, nextCardIds);
   }
 
   const activeIndex = activeColumn.cardIds.indexOf(activeId);
@@ -234,6 +235,80 @@ const applyColumnsPatch = (board: BoardData, columns: unknown[]): BoardData | nu
   return { ...board, columns: nextColumns };
 };
 
+// The AI may name a column by id or by title.
+const findTargetColumn = (board: BoardData, value: string): Column | undefined =>
+  board.columns.find((column) => column.id === value) ||
+  board.columns.find((column) => column.title.toLowerCase() === value.toLowerCase());
+
+const applyCreateCard = (board: BoardData, update: Record<string, unknown>): BoardData => {
+  if (typeof update.card !== "object" || update.card === null) {
+    return board;
+  }
+
+  const cardData = update.card as Record<string, unknown>;
+  const title = typeof cardData.title === "string" ? cardData.title : "New card";
+  const details = typeof cardData.description === "string" ? cardData.description : "No details yet.";
+  const columnValue = typeof cardData.column === "string" ? cardData.column : "";
+  const targetColumn = findTargetColumn(board, columnValue) || board.columns[0];
+  const id = createId("card");
+
+  return {
+    ...board,
+    cards: {
+      ...board.cards,
+      [id]: { id, title, details },
+    },
+    columns: board.columns.map((column) =>
+      column.id === targetColumn.id
+        ? { ...column, cardIds: [...column.cardIds, id] }
+        : column
+    ),
+  };
+};
+
+const applyRenameColumn = (board: BoardData, update: Record<string, unknown>): BoardData => {
+  const columnId = typeof update.columnId === "string" ? update.columnId : "";
+  const newTitle = typeof update.title === "string" ? update.title : "";
+  if (!columnId || !newTitle) {
+    return board;
+  }
+
+  return {
+    ...board,
+    columns: board.columns.map((column) =>
+      column.id === columnId ? { ...column, title: newTitle } : column
+    ),
+  };
+};
+
+const applyMoveCard = (board: BoardData, update: Record<string, unknown>): BoardData => {
+  const cardId = typeof update.cardId === "string" ? update.cardId : "";
+  const columnValue = typeof update.toColumn === "string" ? update.toColumn : "";
+  const targetColumn = columnValue ? findTargetColumn(board, columnValue) : undefined;
+  if (!cardId || !targetColumn) {
+    return board;
+  }
+
+  const currentColumn = board.columns.find((column) => column.cardIds.includes(cardId));
+  if (!currentColumn || currentColumn.id === targetColumn.id) {
+    return board;
+  }
+
+  return {
+    ...board,
+    columns: board.columns.map((column) => {
+      if (column.id === currentColumn.id) {
+        return { ...column, cardIds: column.cardIds.filter((id) => id !== cardId) };
+      }
+      if (column.id === targetColumn.id) {
+        return { ...column, cardIds: [...column.cardIds, cardId] };
+      }
+      return column;
+    }),
+  };
+};
+
+// The AI returns either a full board replacement or a partial action-style update.
 export const applyBoardUpdate = (board: BoardData, boardUpdate: unknown): BoardData => {
   if (!boardUpdate || typeof boardUpdate !== "object" || Array.isArray(boardUpdate)) {
     return board;
@@ -248,71 +323,14 @@ export const applyBoardUpdate = (board: BoardData, boardUpdate: unknown): BoardD
     return applyColumnsPatch(board, update.columns) ?? board;
   }
 
-  const findColumn = (value: string) => {
-    return (
-      board.columns.find((column) => column.id === value) ||
-      board.columns.find((column) => column.title.toLowerCase() === value.toLowerCase())
-    );
-  };
-
-  if (update.action === "createCard" && typeof update.card === "object" && update.card !== null) {
-    const cardData = update.card as Record<string, unknown>;
-    const title = typeof cardData.title === "string" ? cardData.title : "New card";
-    const details = typeof cardData.description === "string" ? cardData.description : "No details yet.";
-    const columnValue = typeof cardData.column === "string" ? cardData.column : "";
-    const targetColumn = findColumn(columnValue) || board.columns[0];
-    const id = createId("card");
-
-    return {
-      ...board,
-      cards: {
-        ...board.cards,
-        [id]: { id, title, details },
-      },
-      columns: board.columns.map((column) =>
-        column.id === targetColumn.id
-          ? { ...column, cardIds: [...column.cardIds, id] }
-          : column
-      ),
-    };
+  switch (update.action) {
+    case "createCard":
+      return applyCreateCard(board, update);
+    case "renameColumn":
+      return applyRenameColumn(board, update);
+    case "moveCard":
+      return applyMoveCard(board, update);
+    default:
+      return board;
   }
-
-  if (update.action === "renameColumn") {
-    const columnId = typeof update.columnId === "string" ? update.columnId : undefined;
-    const newTitle = typeof update.title === "string" ? update.title : undefined;
-    if (columnId && newTitle) {
-      return {
-        ...board,
-        columns: board.columns.map((column) =>
-          column.id === columnId ? { ...column, title: newTitle } : column
-        ),
-      };
-    }
-  }
-
-  if (update.action === "moveCard") {
-    const cardId = typeof update.cardId === "string" ? update.cardId : undefined;
-    const columnValue = typeof update.toColumn === "string" ? update.toColumn : undefined;
-    const targetColumn = columnValue ? findColumn(columnValue) : undefined;
-    if (cardId && targetColumn) {
-      const currentColumn = board.columns.find((column) => column.cardIds.includes(cardId));
-      if (!currentColumn || currentColumn.id === targetColumn.id) {
-        return board;
-      }
-      return {
-        ...board,
-        columns: board.columns.map((column) => {
-          if (column.id === currentColumn.id) {
-            return { ...column, cardIds: column.cardIds.filter((id) => id !== cardId) };
-          }
-          if (column.id === targetColumn.id) {
-            return { ...column, cardIds: [...column.cardIds, cardId] };
-          }
-          return column;
-        }),
-      };
-    }
-  }
-
-  return board;
 };

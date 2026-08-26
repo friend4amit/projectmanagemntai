@@ -45,6 +45,39 @@ describe("applyBoardUpdate", () => {
     expect(result.columns.find((c) => c.id === "col-review")?.cardIds).toEqual(["card-6", "card-1"]);
   });
 
+  it("applies the createCard action, resolving the column by title", () => {
+    const result = applyBoardUpdate(board, {
+      action: "createCard",
+      card: { title: "Write docs", description: "Cover the API", column: "Review" },
+    });
+    const review = result.columns.find((c) => c.id === "col-review");
+    const newCardId = review?.cardIds.at(-1) as string;
+    expect(review?.cardIds).toHaveLength(2);
+    expect(result.cards[newCardId]).toEqual({ id: newCardId, title: "Write docs", details: "Cover the API" });
+  });
+
+  it("falls back to the first column and default text when createCard omits fields", () => {
+    const result = applyBoardUpdate(board, { action: "createCard", card: { column: "Nowhere" } });
+    const backlog = result.columns.find((c) => c.id === "col-backlog");
+    const newCardId = backlog?.cardIds.at(-1) as string;
+    expect(backlog?.cardIds).toEqual(["card-1", newCardId]);
+    expect(result.cards[newCardId]).toEqual({ id: newCardId, title: "New card", details: "No details yet." });
+  });
+
+  it("no-ops when the createCard action carries no card object", () => {
+    expect(applyBoardUpdate(board, { action: "createCard" })).toBe(board);
+  });
+
+  it("applies the renameColumn action", () => {
+    const result = applyBoardUpdate(board, { action: "renameColumn", columnId: "col-review", title: "In Review" });
+    expect(result.columns.map((c) => c.title)).toEqual(["Backlog", "In Review", "Done"]);
+    expect(result.cards).toEqual(board.cards);
+  });
+
+  it("no-ops when the renameColumn action is missing a title", () => {
+    expect(applyBoardUpdate(board, { action: "renameColumn", columnId: "col-review" })).toBe(board);
+  });
+
   it("applies a partial columns-only patch without a top-level action field", () => {
     // This is the shape the AI actually returned for "move the Test card to Review":
     // {"columns":[{"id":"col-backlog","cardIds":[]},{"id":"col-review","cardIds":["card-6","card-1"]}]}

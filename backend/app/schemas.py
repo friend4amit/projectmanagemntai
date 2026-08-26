@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -12,12 +12,12 @@ class Card(BaseModel):
 class Column(BaseModel):
     id: str
     title: str
-    cardIds: List[str]
+    cardIds: list[str]
 
 
 class BoardData(BaseModel):
-    columns: List[Column]
-    cards: Dict[str, Card]
+    columns: list[Column]
+    cards: dict[str, Card]
 
     @model_validator(mode="after")
     def check_invariants(self) -> "BoardData":
@@ -29,9 +29,7 @@ class BoardData(BaseModel):
             if card_id != card.id:
                 raise ValueError(f"Card key '{card_id}' does not match card id '{card.id}'")
 
-        placed_card_ids: list[str] = []
-        for column in self.columns:
-            placed_card_ids.extend(column.cardIds)
+        placed_card_ids = [card_id for column in self.columns for card_id in column.cardIds]
         if len(placed_card_ids) != len(set(placed_card_ids)):
             raise ValueError("A card cannot appear in more than one column")
 
